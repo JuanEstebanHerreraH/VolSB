@@ -30,7 +30,7 @@ Cuando **Absolute Volume (AVRCP)** falla, el volumen de Android y el volumen int
               roto   └──────────────┘
 ```
 
-**VolSB lo soluciona** enviando comandos directos al stack AVRCP, renotificando al dispositivo y guiando al usuario paso a paso.
+**VolSB lo soluciona** usando `FLAG_BLUETOOTH_ABS_VOLUME` para forzar que Android propague cada cambio de volumen al dispositivo vía AVRCP, renotificando al stack BT y guiando al usuario paso a paso.
 
 ---
 
@@ -65,7 +65,7 @@ Flutter (UI/UX)
       ↓  Platform Channel: com.btvolumepro/bluetooth
 Kotlin Android Native
       ↓
-Bluetooth APIs (A2DP · AVRCP) + AudioManager
+Bluetooth APIs (A2DP · AVRCP) + AudioManager (FLAG_BLUETOOTH_ABS_VOLUME)
 ```
 
 ---
@@ -85,8 +85,8 @@ Bluetooth APIs (A2DP · AVRCP) + AudioManager
 
 ```bash
 # 1. Clona el repositorio
-git clone https://github.com/tu-usuario/volsb.git
-cd volsb
+git clone https://github.com/JuanEstebanHerreraH/VolSB.git
+cd VolSB
 
 # 2. Instala dependencias
 flutter pub get
@@ -167,6 +167,17 @@ volsb/
 ├── assets/images/logo.png
 └── pubspec.yaml
 ```
+
+---
+
+## Notas técnicas
+
+**¿Por qué `FLAG_BLUETOOTH_ABS_VOLUME` (64)?**
+Android tiene dos comportamientos al llamar `setStreamVolume`:
+- Flag `0` — cambia el volumen local de Android, pero **no notifica al dispositivo BT**.
+- Flag `64` — cambia el volumen local **y** envía la notificación AVRCP al dispositivo, actualizando su volumen interno.
+
+Sin este flag, el amp o DAC nunca recibe el cambio y queda muteado aunque Android marque volumen alto. VolSB usa `64` en todas las operaciones de volumen para garantizar la propagación.
 
 ---
 

@@ -19,13 +19,6 @@ class SettingsScreen extends StatelessWidget {
           _Section(
             title: 'Apariencia',
             children: [
-              SwitchListTile(
-                title: const Text('Modo oscuro'),
-                subtitle: const Text('Interfaz oscura (recomendado)'),
-                value: state.isDarkMode,
-                onChanged: state.setDarkMode,
-                activeColor: cs.primary,
-              ),
               ListTile(
                 leading: Icon(Icons.wallpaper_rounded, color: cs.primary),
                 title: const Text('Imagen de fondo'),

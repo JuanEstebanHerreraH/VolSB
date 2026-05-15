@@ -33,8 +33,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final bt = await Permission.bluetooth.status;
     final btConnect = await Permission.bluetoothConnect.status;
     final btScan = await Permission.bluetoothScan.status;
+    final location = await Permission.location.status;
 
-    final allGranted = bt.isGranted && btConnect.isGranted && btScan.isGranted;
+    // En Android >= 12, se requiere btConnect y btScan.
+    // En Android < 12, se requiere location (para escaneo Bluetooth).
+    // Si alguno está explícitamente "granted", avanzamos. Si falta lo vital, pedimos.
+    final allGranted = (btConnect.isGranted || location.isGranted) && 
+                       (btScan.isGranted || location.isGranted);
+
     if (mounted) {
       setState(() {
         _permissionsGranted = allGranted;
@@ -105,48 +111,53 @@ class _HomeScreenState extends State<HomeScreen> {
               slivers: [
                 const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
-                // Aviso de permisos
+                // Lógica principal
                 if (_permissionsChecked && !_permissionsGranted)
-                  SliverToBoxAdapter(
+                  SliverFillRemaining(
+                    hasScrollBody: false,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: _PermissionBanner(onTap: _requestPermissions),
-                    ),
-                  ),
-
-                // Status banner
-                if (state.statusMessage.isNotEmpty)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: StatusBanner(
-                        status: state.status,
-                        message: state.statusMessage,
+                      padding: const EdgeInsets.all(24),
+                      child: _ElegantPermissionView(
+                        onRequest: _requestPermissions,
+                        onOpenSettings: openAppSettings,
                       ),
                     ),
-                  ),
+                  )
+                else ...[
+                  // Status banner
+                  if (state.statusMessage.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: StatusBanner(
+                          status: state.status,
+                          message: state.statusMessage,
+                        ),
+                      ),
+                    ),
 
-                // Device chips
-                if (state.devices.isNotEmpty)
+                  // Device chips
+                  if (state.devices.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DeviceTabs(
+                        devices: state.devices,
+                        selected: state.selectedDevice,
+                        onSelect: state.selectDevice,
+                      ),
+                    ),
+
+                  // Main content
                   SliverToBoxAdapter(
-                    child: _DeviceTabs(
-                      devices: state.devices,
-                      selected: state.selectedDevice,
-                      onSelect: state.selectDevice,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: state.devices.isEmpty
+                          ? NoDeviceView(onRefresh: state.scanDevices)
+                          : _DeviceContent(device: state.selectedDevice),
                     ),
                   ),
 
-                // Main content
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: state.devices.isEmpty
-                        ? NoDeviceView(onRefresh: state.scanDevices)
-                        : _DeviceContent(device: state.selectedDevice),
-                  ),
-                ),
-
-                const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                  const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                ],
               ],
             ),
           ),
@@ -156,48 +167,95 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ── Banner de permisos ────────────────────────────────────────────────────────
+// ── Vista de permisos elegante ────────────────────────────────────────────────
 
-class _PermissionBanner extends StatelessWidget {
-  final VoidCallback onTap;
-  const _PermissionBanner({required this.onTap});
+class _ElegantPermissionView extends StatelessWidget {
+  final VoidCallback onRequest;
+  final VoidCallback onOpenSettings;
+
+  const _ElegantPermissionView({required this.onRequest, required this.onOpenSettings});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.orange.withOpacity(0.4)),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF161B22) : Colors.white,
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: isDark ? Colors.transparent : Colors.black.withOpacity(0.05)),
+            boxShadow: [
+              BoxShadow(
+                color: isDark ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.05),
+                blurRadius: 30,
+                offset: const Offset(0, 15),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blueAccent.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.bluetooth_searching_rounded, color: Colors.blueAccent, size: 48),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Permisos Necesarios',
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'VolSB necesita acceso a Bluetooth y Ubicación Cercana para poder detectar tu DAC o audífonos y enviar los comandos de volumen AVRCP.',
+                style: TextStyle(
+                  color: isDark ? Colors.white60 : Colors.black54,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton(
+                  onPressed: onRequest,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: cs.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    elevation: 0,
+                  ),
+                  child: const Text('Conceder Permisos', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: onOpenSettings,
+                style: TextButton.styleFrom(
+                  foregroundColor: isDark ? Colors.white54 : Colors.black45,
+                ),
+                child: const Text('Abrir Ajustes del Sistema'),
+              ),
+            ],
+          ),
         ),
-        child: Row(
-          children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 22),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Permisos de Bluetooth no otorgados. La app no puede detectar dispositivos.\nToca aquí para habilitarlos.',
-                style: TextStyle(color: Colors.orange, fontSize: 13, height: 1.5),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                'Activar',
-                style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w700, fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 }

@@ -17,7 +17,6 @@ class AppState extends ChangeNotifier {
   BtDevice? selectedDevice;
   Map<String, DeviceProfile> profiles = {};
 
-  bool isDarkMode = true;
   bool absoluteVolumeEnabled = true;
   String? backgroundImagePath;
 
@@ -33,7 +32,6 @@ class AppState extends ChangeNotifier {
   // ── Init ─────────────────────────────────────────────────────────────────────
 
   Future<void> init() async {
-    isDarkMode = await _profileService.getDarkMode();
     absoluteVolumeEnabled = await _profileService.getAbsoluteVolEnabled();
     backgroundImagePath = await _profileService.getBackgroundPath();
     profiles = await _profileService.loadAll();
@@ -91,19 +89,39 @@ class AppState extends ChangeNotifier {
   // ── Volume controls ──────────────────────────────────────────────────────────
 
   Future<void> setAndroidVolume(int level) async {
+    isMuted = false; // Auto-unmute al ajustar volumen
     await _btService.setAndroidVolume(level);
     androidVolume = level;
     notifyListeners();
   }
 
   Future<void> volumeUp() async {
+    isMuted = false; // Auto-unmute
     await _btService.sendVolumeUp(address: selectedDevice?.address);
-    await _refreshVolume();
+    if (absoluteVolumeEnabled) {
+      await _refreshVolume();
+    }
   }
 
   Future<void> volumeDown() async {
+    isMuted = false; // Auto-unmute
     await _btService.sendVolumeDown(address: selectedDevice?.address);
-    await _refreshVolume();
+    if (absoluteVolumeEnabled) {
+      await _refreshVolume();
+    }
+  }
+
+  Future<void> sendPlayPause() async {
+    // La mayoría de los dispositivos aceptan play como toggle de play/pause
+    await _btService.sendPlay(address: selectedDevice?.address);
+  }
+
+  Future<void> sendNext() async {
+    await _btService.sendNext(address: selectedDevice?.address);
+  }
+
+  Future<void> sendPrev() async {
+    await _btService.sendPrev(address: selectedDevice?.address);
   }
 
   Future<void> toggleMute() async {
@@ -207,12 +225,6 @@ class AppState extends ChangeNotifier {
   }
 
   // ── Appearance ────────────────────────────────────────────────────────────────
-
-  Future<void> setDarkMode(bool value) async {
-    isDarkMode = value;
-    await _profileService.setDarkMode(value);
-    notifyListeners();
-  }
 
   Future<void> setBackgroundImage(String? path) async {
     backgroundImagePath = path;

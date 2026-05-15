@@ -12,19 +12,33 @@ class AVRCPController(private val context: Context) {
     private val TAG = "AVRCPController"
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-    // Estos métodos ahora son solo fallback para cuando no hay dirección de dispositivo
+    // Estos métodos ahora son fallback genéricos pero priorizando inyección de KeyEvent
     fun sendVolumeUp(): Boolean {
         return try {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 64)
+            val audioServiceMethod = audioManager.javaClass.getMethod("handleKeyDown", KeyEvent::class.java, Int::class.java)
+            val event = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP)
+            audioServiceMethod.invoke(audioManager, event, AudioManager.STREAM_MUSIC)
             true
-        } catch (e: Exception) { false }
+        } catch (e: Exception) {
+            try {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 64)
+                true
+            } catch (e2: Exception) { false }
+        }
     }
 
     fun sendVolumeDown(): Boolean {
         return try {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 64)
+            val audioServiceMethod = audioManager.javaClass.getMethod("handleKeyDown", KeyEvent::class.java, Int::class.java)
+            val event = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN)
+            audioServiceMethod.invoke(audioManager, event, AudioManager.STREAM_MUSIC)
             true
-        } catch (e: Exception) { false }
+        } catch (e: Exception) {
+            try {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 64)
+                true
+            } catch (e2: Exception) { false }
+        }
     }
 
     fun sendMute(): Boolean {

@@ -22,13 +22,11 @@ class _BtVolumeProAppState extends State<BtVolumeProApp> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.select<AppState, bool>((s) => s.isDarkMode);
     return MaterialApp(
       title: 'BT Volume Pro',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+      theme: AppTheme.dark(),
+      themeMode: ThemeMode.dark,
       home: const HomeScreen(),
     );
   }

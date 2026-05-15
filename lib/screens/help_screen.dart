@@ -26,10 +26,10 @@ class _HelpScreenState extends State<HelpScreen> {
     if (mounted) {
       setState(() {
         _perms = {
-          'Bluetooth'           : bt.isGranted,
-          'Bluetooth Connect'   : btConnect.isGranted,
-          'Bluetooth Scan'      : btScan.isGranted,
-          'Ubicación'           : location.isGranted,
+          'Bluetooth General'   : bt.isGranted,
+          'Conexión Cercana'    : btConnect.isGranted,
+          'Escaneo BT'          : btScan.isGranted,
+          'Ubicación (Android < 12)': location.isGranted,
         };
       });
     }
@@ -47,234 +47,376 @@ class _HelpScreenState extends State<HelpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF0D1117) : const Color(0xFFF0F2F5);
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Guía de Solución')),
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        title: const Text('Guía de Audio y DAC'),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         children: [
+          _IntroHeader(isDark: isDark, cs: cs),
+          const SizedBox(height: 32),
 
-          // ── Sección de permisos ───────────────────────────────────────────
-          _SectionHeader(icon: Icons.lock_open_rounded, color: Colors.orange, title: 'Permisos requeridos'),
-          const SizedBox(height: 8),
+          _SectionTitle(title: 'Permisos del Sistema', icon: Icons.security_rounded, isDark: isDark),
+          const SizedBox(height: 16),
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.07),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.orange.withOpacity(0.25)),
+              color: isDark ? const Color(0xFF161B22) : Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: isDark ? Colors.transparent : Colors.black.withOpacity(0.05)),
+              boxShadow: [
+                BoxShadow(color: isDark ? Colors.black.withOpacity(0.2) : Colors.black.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 5)),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Para que VolSB funcione correctamente, necesita los siguientes permisos. Si alguno aparece en rojo, toca "Dar permisos" para habilitarlos.',
-                  style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
+                Text(
+                  'Estado Actual',
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.w800, fontSize: 16),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
                 ..._perms.entries.map((e) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Row(
                     children: [
-                      Icon(
-                        e.value ? Icons.check_circle_rounded : Icons.cancel_rounded,
-                        color: e.value ? Colors.greenAccent : Colors.redAccent,
-                        size: 18,
-                      ),
+                      Icon(e.value ? Icons.check_circle_rounded : Icons.cancel_rounded, color: e.value ? Colors.greenAccent : Colors.redAccent, size: 18),
                       const SizedBox(width: 10),
                       Text(
                         e.key,
-                        style: TextStyle(
-                          color: e.value ? Colors.white70 : Colors.redAccent,
-                          fontSize: 13,
-                          fontWeight: e.value ? FontWeight.normal : FontWeight.w600,
-                        ),
+                        style: TextStyle(color: e.value ? (isDark ? Colors.white70 : Colors.black54) : Colors.redAccent, fontSize: 13, fontWeight: e.value ? FontWeight.normal : FontWeight.w600),
                       ),
-                      if (!e.value) ...[
-                        const SizedBox(width: 6),
-                        const Text('(requerido)', style: TextStyle(color: Colors.orange, fontSize: 11)),
-                      ],
                     ],
                   ),
                 )),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: _requestAll,
-                    icon: const Icon(Icons.security_rounded, size: 18),
-                    label: const Text('Dar permisos'),
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Comprobar / Solicitar Permisos'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: cs.primary.withOpacity(0.1),
+                      foregroundColor: cs.primary,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Si el botón no funciona, ve a:\nAjustes → Aplicaciones → VolSB → Permisos',
-                  style: TextStyle(color: Colors.white38, fontSize: 12, height: 1.5),
+                Text(
+                  'Si tienes problemas detectando dispositivos, asegúrate de que todos los permisos estén marcados en verde. En Android < 12 se requiere Ubicación.',
+                  style: TextStyle(color: isDark ? Colors.white38 : Colors.black38, fontSize: 11, height: 1.4),
                 ),
               ],
             ),
           ),
-
-          const SizedBox(height: 20),
-
-          // ── Por qué no hay volumen ────────────────────────────────────────
-          _InfoBox(
-            icon: Icons.info_outline_rounded,
-            color: cs.primary,
-            title: '¿Por qué mi dispositivo no tiene volumen?',
-            body:
-                'En Bluetooth existen DOS capas de volumen independientes: el volumen del sistema Android y el volumen interno del dispositivo Bluetooth.\n\n'
-                'Cuando "Volumen Absoluto" (AVRCP Absolute Volume) está desactivado, roto o no es compatible, ambos funcionan separados. Esto hace que tu amplificador, DAC o auriculares queden internamente en volumen 0 aunque Android muestre volumen normal.',
+          const SizedBox(height: 40),
+          
+          _SectionTitle(title: 'Modos de Volumen', icon: Icons.tune_rounded, isDark: isDark),
+          const SizedBox(height: 16),
+          _ModeCard(
+            title: 'Unified Volume Mode',
+            subtitle: 'Volumen Absoluto Activado',
+            description: 'Android controla el volumen del sistema y del dispositivo Bluetooth al mismo tiempo. Al subir el volumen en tu DAC o Audífonos, la barra de volumen de Android también se mueve.',
+            icon: Icons.link_rounded,
+            color: Colors.blueAccent,
+            isDark: isDark,
           ),
           const SizedBox(height: 16),
-
-          _StepList(
-            title: 'Pasos a seguir manualmente',
-            color: cs.tertiary,
-            steps: [
-              'Usa los botones físicos de volumen del headset o amplificador',
-              'Reconecta el dispositivo Bluetooth (desconecta y vuelve a conectar)',
-              'Activa/desactiva el Bluetooth del celular y reconecta',
-              'Prueba "Resincronizar" y "Reconectar" en la pantalla principal',
-              'Si tu celular tiene opciones de desarrollador, prueba cambiar la versión AVRCP en "Configuración → Opciones de desarrollador → Versión AVRCP de Bluetooth"',
-              'Desvincula y vuelve a emparejar el dispositivo (Olvidar dispositivo + nuevo emparejamiento)',
-              'Reinicia el dispositivo Bluetooth (apagar/encender físicamente)',
-              'Si el dispositivo tiene combinación de botones para reset, úsala',
-              'Sube el volumen desde el dispositivo físico antes de usar la app',
-              'Prueba con otro celular que tenga Absolute Volume activo',
-            ],
+          _ModeCard(
+            title: 'Independent Volume Mode',
+            subtitle: 'Volumen Absoluto Desactivado',
+            description: 'El volumen del dispositivo Bluetooth y de Android están separados. La app enviará comandos directos al DAC (AVRCP) sin modificar forzosamente la barra de Android. Ideal para hardware de audio de alta fidelidad o cuando el botón físico está dañado.',
+            icon: Icons.link_off_rounded,
+            color: Colors.tealAccent,
+            isDark: isDark,
           ),
+
+          const SizedBox(height: 40),
+
+          _SectionTitle(title: 'Preguntas Frecuentes', icon: Icons.help_outline_rounded, isDark: isDark),
           const SizedBox(height: 16),
-
-          _StepList(
-            title: 'Lo que la app intenta automáticamente',
-            color: cs.secondary,
-            steps: [
-              'Resincronización de volumen via AVRCP PassThrough',
-              'Envío de comandos AVRCP repetidos (burst)',
-              'Reinicialización del stack Bluetooth',
-              'Reconexión automática al perfil A2DP/HFP',
-              'Restauración de niveles de volumen previos del perfil guardado',
-              'Comando "Unmute" a nivel del sistema Android',
-            ],
+          _FaqItem(
+            question: '¿Por qué mi DAC no suena aunque Android esté al máximo?',
+            answer: 'Si el "Independent Mode" está activo, es posible que el volumen interno de tu DAC esté en 0%. Usa el botón (+) de la app para subir el volumen interno del dispositivo.',
+            isDark: isDark,
           ),
+          _FaqItem(
+            question: '¿Por qué mi teléfono reacciona distinto?',
+            answer: 'Fabricantes como Samsung, Xiaomi o Huawei a veces fuerzan la sincronización de volumen en su propia capa de software, ignorando la configuración nativa. Si notas comportamientos extraños, prueba resincronizar desde la app.',
+            isDark: isDark,
+          ),
+          
+          const SizedBox(height: 40),
+
+          _SectionTitle(title: 'Mejores Resultados', icon: Icons.verified_user_rounded, isDark: isDark),
           const SizedBox(height: 16),
-
-          _InfoBox(
-            icon: Icons.lightbulb_outline_rounded,
-            color: Colors.amber,
-            title: 'Consejo Pro',
-            body:
-                'Si el dispositivo quedó con volumen 0 interno, la solución más confiable es usar los controles físicos del propio dispositivo (si los tiene) y luego usar "Resincronizar" en la app para alinear ambas capas.',
+          _TipBox(
+            title: 'Opciones de Desarrollador',
+            description: 'Para mayor control, puedes activar las "Opciones de Desarrollador" en Android y cambiar la versión AVRCP de Bluetooth a 1.5 o 1.6, lo que mejora la compatibilidad del Volumen Absoluto.',
+            isDark: isDark,
+            cs: cs,
           ),
-          const SizedBox(height: 16),
-
-          _InfoBox(
-            icon: Icons.developer_mode_rounded,
-            color: cs.tertiary,
-            title: 'Opciones de Desarrollador Android',
-            body:
-                'Puedes activar las Opciones de Desarrollador en tu Android yendo a:\n'
-                'Ajustes → Acerca del teléfono → Número de compilación (toca 7 veces)\n\n'
-                'Luego busca "Versión AVRCP de Bluetooth" y prueba con AVRCP 1.5 o 1.6.',
-          ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 40),
         ],
       ),
     );
   }
 }
 
-// ── Widgets auxiliares ────────────────────────────────────────────────────────
+class _IntroHeader extends StatelessWidget {
+  final bool isDark;
+  final ColorScheme cs;
 
-class _SectionHeader extends StatelessWidget {
-  final IconData icon;
-  final Color color;
+  const _IntroHeader({required this.isDark, required this.cs});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: isDark ? cs.primary.withOpacity(0.1) : cs.primary.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: cs.primary.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.graphic_eq_rounded, size: 48, color: cs.primary),
+          const SizedBox(height: 16),
+          Text(
+            'Control de Audio Avanzado',
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black87,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'VolSB te permite interactuar directamente con la capa AVRCP de tus dispositivos Bluetooth, saltando las limitaciones típicas de Android.',
+            style: TextStyle(
+              color: isDark ? Colors.white70 : Colors.black54,
+              fontSize: 14,
+              height: 1.5,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
   final String title;
-  const _SectionHeader({required this.icon, required this.color, required this.title});
+  final IconData icon;
+  final bool isDark;
+
+  const _SectionTitle({required this.title, required this.icon, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, color: color, size: 18),
+        Icon(icon, color: isDark ? Colors.white54 : Colors.black45, size: 20),
         const SizedBox(width: 8),
-        Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 15)),
+        Text(
+          title.toUpperCase(),
+          style: TextStyle(
+            color: isDark ? Colors.white54 : Colors.black45,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.5,
+            fontSize: 13,
+          ),
+        ),
       ],
     );
   }
 }
 
-class _InfoBox extends StatelessWidget {
+class _ModeCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String description;
   final IconData icon;
   final Color color;
-  final String title;
-  final String body;
+  final bool isDark;
 
-  const _InfoBox({required this.icon, required this.color, required this.title, required this.body});
+  const _ModeCard({
+    required this.title,
+    required this.subtitle,
+    required this.description,
+    required this.icon,
+    required this.color,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2)),
+        color: isDark ? const Color(0xFF161B22) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: isDark ? Colors.transparent : Colors.black.withOpacity(0.05)),
+        boxShadow: [
+          BoxShadow(
+            color: isDark ? Colors.black.withOpacity(0.2) : Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 10),
-            Expanded(child: Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 15))),
-          ]),
-          const SizedBox(height: 10),
-          Text(body, style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.6)),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            description,
+            style: TextStyle(
+              color: isDark ? Colors.white60 : Colors.black54,
+              height: 1.5,
+              fontSize: 14,
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _StepList extends StatelessWidget {
-  final String title;
-  final Color color;
-  final List<String> steps;
+class _FaqItem extends StatelessWidget {
+  final String question;
+  final String answer;
+  final bool isDark;
 
-  const _StepList({required this.title, required this.color, required this.steps});
+  const _FaqItem({required this.question, required this.answer, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            question,
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black87,
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            answer,
+            style: TextStyle(
+              color: isDark ? Colors.white60 : Colors.black54,
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TipBox extends StatelessWidget {
+  final String title;
+  final String description;
+  final bool isDark;
+  final ColorScheme cs;
+
+  const _TipBox({required this.title, required this.description, required this.isDark, required this.cs});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2)),
+        color: isDark ? Colors.amber.withOpacity(0.05) : Colors.amber.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.amber.withOpacity(0.3)),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 15)),
-          const SizedBox(height: 12),
-          ...steps.asMap().entries.map((e) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Row(
+          Icon(Icons.lightbulb_outline_rounded, color: Colors.amber.shade700, size: 24),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 22, height: 22,
-                  decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
-                  child: Center(child: Text('${e.key + 1}', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800))),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(child: Text(e.value, style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.5))),
+                const SizedBox(height: 6),
+                Text(
+                  description,
+                  style: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black87,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                ),
               ],
             ),
-          )),
+          ),
         ],
       ),
     );

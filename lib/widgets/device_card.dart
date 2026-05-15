@@ -12,9 +12,28 @@ class DeviceCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF161B22),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.05),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+          BoxShadow(
+            color: cs.primary.withOpacity(0.05),
+            blurRadius: 1,
+            spreadRadius: 1,
+          )
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -27,8 +46,22 @@ class DeviceCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(device.name, style: tt.titleLarge),
+                      Text(
+                        device.name,
+                        style: tt.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
                       const SizedBox(height: 4),
+                      Text(
+                        device.address,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           _StatusDot(active: device.isConnected),
@@ -39,6 +72,7 @@ class DeviceCard extends StatelessWidget {
                               color: device.isConnected
                                   ? cs.tertiary
                                   : cs.error,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
@@ -52,10 +86,10 @@ class DeviceCard extends StatelessWidget {
             ),
 
             const SizedBox(height: 20),
-            const Divider(),
+            Divider(color: Colors.white.withOpacity(0.1)),
             const SizedBox(height: 16),
 
-            // Feature badges — absoluteVolumeEnabled viene de AppState para reflejar cambios en tiempo real
+            // Feature badges
             Builder(builder: (context) {
               final absVol = context.watch<AppState>().absoluteVolumeEnabled;
               return Wrap(
@@ -194,11 +228,25 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = neutral
-        ? cs.secondary
-        : active
-            ? cs.tertiary
-            : cs.error.withOpacity(0.7);
+    if (neutral) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: cs.primary.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: cs.primary,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    final color = active ? cs.tertiary : cs.error.withOpacity(0.7);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
@@ -209,12 +257,11 @@ class _Badge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (!neutral)
-            Icon(
-              active ? Icons.check_circle_rounded : Icons.cancel_rounded,
-              size: 12,
-              color: color,
-            ),
+          Icon(
+            active ? Icons.check_circle_rounded : Icons.cancel_rounded,
+            size: 12,
+            color: color,
+          ),
           if (!neutral) const SizedBox(width: 4),
           Text(label,
               style: TextStyle(

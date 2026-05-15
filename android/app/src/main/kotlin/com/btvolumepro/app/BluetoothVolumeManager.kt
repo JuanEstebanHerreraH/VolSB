@@ -51,38 +51,95 @@ class BluetoothVolumeManager(private val context: Context) {
         avrcpControllerProxy?.let { btAdapter?.closeProfileProxy(12, it) }
     }
 
-    // ── AVRCP PassThrough - simula botones fisicos del dispositivo BT ─────────
+    // ── AVRCP PassThrough & Absolute Volume Injection ─────────────────────────
 
     fun sendAvrcpPassThrough(address: String, keyId: Int): Boolean {
-        return try {
-            val device = btAdapter?.bondedDevices?.find { it.address == address }
-                ?: return sendAvrcpFallback(keyId)
-
-            val proxy = avrcpControllerProxy ?: return sendAvrcpFallback(keyId)
-
-            val method = proxy.javaClass.getMethod(
-                "sendPassThroughCmd",
-                BluetoothDevice::class.java,
-                Int::class.java,
-                Int::class.java
-            )
-            method.invoke(proxy, device, keyId, 0) // KEY_DOWN
-            Thread.sleep(50)
-            method.invoke(proxy, device, keyId, 1) // KEY_UP
-            Log.d(TAG, "AVRCP PassThrough 0x${keyId.toString(16)} -> $address")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "PassThrough failed: ${e.message}")
-            sendAvrcpFallback(keyId)
+        val device = btAdapter?.bondedDevices?.find { it.address == address }
+        
+        // Intento 1: AVRCP Controller PassThrough (Si tenemos suerte y profile 12 se conectó)
+        if (avrcpControllerProxy != null && device != null) {
+            try {
+                val method = avrcpControllerProxy!!.javaClass.getMethod(
+                    "sendPassThroughCmd",
+                    BluetoothDevice::class.java,
+                    Int::class.java,
+                    Int::class.java
+                )
+                method.invoke(avrcpControllerProxy, device, keyId, 0) // DOWN
+                Thread.sleep(20)
+                method.invoke(avrcpControllerProxy, device, keyId, 1) // UP
+                Log.d(TAG, "AVRCP PassThrough successful for 0x${keyId.toString(16)}")
+                return true
+            } catch (e: Exception) {
+                Log.w(TAG, "PassThrough failed: ${e.message}")
+            }
         }
+
+        // Intento 2: Inyección directa de Absolute Volume a BluetoothA2dp (Bypass STREAM_MUSIC)
+        // Algunos fabricantes mantienen estos métodos ocultos en el proxy de A2DP.
+        if (a2dpProfile != null && (keyId == AVRCP_VOL_UP || keyId == AVRCP_VOL_DOWN)) {
+            try {
+                val direction = if (keyId == AVRCP_VOL_UP) 1 else -1
+                // Buscar método adjustAvrcpAbsoluteVolume
+                val adjustMethod = a2dpProfile!!.javaClass.methods.find { 
+                    it.name == "adjustAvrcpAbsoluteVolume" || it.name == "adjustVolume" 
+                }
+                
+                if (adjustMethod != null) {
+                    adjustMethod.isAccessible = true
+                    // Podría requerir (direction) o (device, direction)
+                    if (adjustMethod.parameterTypes.size == 1) {
+                        adjustMethod.invoke(a2dpProfile, direction)
+                    } else if (adjustMethod.parameterTypes.size == 2) {
+                        adjustMethod.invoke(a2dpProfile, device, direction)
+                    }
+                    Log.d(TAG, "A2DP adjustAvrcpAbsoluteVolume successful")
+                    return true
+                }
+
+                // Alternativa: Si solo existe setAvrcpAbsoluteVolume, intentamos simular un salto
+                val setMethod = a2dpProfile!!.javaClass.methods.find { 
+                    it.name == "setAvrcpAbsoluteVolume" 
+                }
+                if (setMethod != null) {
+                    // Como no sabemos el volumen interno real del DAC, esto es arriesgado sin estado,
+                    // pero podemos intentar usar el volumen actual de Android como base si falla todo lo demás.
+                    // Para verdaderamente evitar modificar STREAM_MUSIC, usaremos una inyección de KeyEvent al AudioManager
+                    Log.w(TAG, "Only setAvrcpAbsoluteVolume found, falling back to KeyEvent injection.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "A2DP reflection failed: ${e.message}")
+            }
+        }
+
+        // Intento 3: AudioManager KeyEvent Injection (Bypass UI)
+        // En lugar de adjustStreamVolume, enviamos un KeyEvent al subsistema de audio
+        try {
+            val keyCode = if (keyId == AVRCP_VOL_UP) android.view.KeyEvent.KEYCODE_VOLUME_UP else android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+            val audioServiceMethod = audioManager.javaClass.getMethod("handleKeyDown", android.view.KeyEvent::class.java, Int::class.java)
+            val event = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode)
+            audioServiceMethod.invoke(audioManager, event, AudioManager.STREAM_MUSIC)
+            Log.d(TAG, "Injected handleKeyDown to AudioManager")
+            return true
+        } catch (e: Exception) {
+            Log.w(TAG, "AudioManager handleKeyDown failed: ${e.message}")
+        }
+
+        // Intento 4: Fallback tradicional como último recurso
+        return sendAvrcpFallback(keyId)
     }
 
     private fun sendAvrcpFallback(keyId: Int): Boolean {
         return try {
             val adjust = if (keyId == AVRCP_VOL_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            // Usamos FLAG_BLUETOOTH_ABS_VOLUME (64) explícitamente para intentar forzar el envío AVRCP
             audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, adjust, 64)
+            Log.d(TAG, "Used fallback adjustStreamVolume with flag 64")
             true
-        } catch (e: Exception) { false }
+        } catch (e: Exception) { 
+            Log.e(TAG, "Fallback failed: ${e.message}")
+            false 
+        }
     }
 
     companion object {

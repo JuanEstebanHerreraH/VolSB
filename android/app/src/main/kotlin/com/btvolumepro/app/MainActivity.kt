@@ -133,6 +133,19 @@ class MainActivity : FlutterActivity() {
 
                     "toggleBluetooth" -> result.success(btVolumeManager.toggleBluetooth())
 
+                    // ── Developer Options ─────────────────────────────────────────────
+
+                    "openDeveloperOptions" -> {
+                        try {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+
                     else -> result.notImplemented()
                 }
             }

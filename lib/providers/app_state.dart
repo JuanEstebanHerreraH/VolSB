@@ -224,11 +224,15 @@ class AppState extends ChangeNotifier {
     _clearStatusAfterDelay();
   }
 
-  Future<void> toggleAbsoluteVolume(bool value) async {
-    absoluteVolumeEnabled = value;
-    await _btService.setAbsoluteVolume(enabled: value);
-    await _profileService.setAbsoluteVolEnabled(value);
-    notifyListeners();
+  Future<bool> toggleAbsoluteVolume(bool value) async {
+    final success = await _btService.setAbsoluteVolume(enabled: value);
+    if (success) {
+      absoluteVolumeEnabled = value;
+      await _profileService.setAbsoluteVolEnabled(value);
+      notifyListeners();
+      return true;
+    }
+    return false;
   }
 
   // ── Profiles ─────────────────────────────────────────────────────────────────

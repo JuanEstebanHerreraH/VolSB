@@ -88,24 +88,31 @@ class BluetoothVolumeManager(private val context: Context) {
 
     fun getAbsoluteVolumeEnabled(): Boolean {
         return try {
-            Settings.Global.getInt(context.contentResolver, "bluetooth_avrc_absolute_vol", 1) == 1
+            // 0 = Absolute Volume is ENABLED (default)
+            // 1 = Absolute Volume is DISABLED
+            Settings.Global.getInt(context.contentResolver, "bluetooth_disable_absolute_volume", 0) == 0
         } catch (e: Exception) { true }
     }
 
     fun setAbsoluteVolume(enabled: Boolean): Boolean {
+        val disableValue = if (enabled) 0 else 1
         return try {
             Settings.Global.putInt(
                 context.contentResolver,
-                "bluetooth_avrc_absolute_vol",
-                if (enabled) 1 else 0
+                "bluetooth_disable_absolute_volume",
+                disableValue
             )
             true
         } catch (e: Exception) {
+            // Si falla por falta de WRITE_SECURE_SETTINGS, intentar con Root (su)
             try {
-                val m = audioManager.javaClass.getMethod("setAbsoluteVolumeEnabled", Boolean::class.java)
-                m.invoke(audioManager, enabled)
-                true
-            } catch (e2: Exception) { false }
+                val command = "settings put global bluetooth_disable_absolute_volume $disableValue"
+                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+                process.waitFor()
+                process.exitValue() == 0
+            } catch (rootError: Exception) { 
+                false 
+            }
         }
     }
 

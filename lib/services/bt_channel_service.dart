@@ -167,6 +167,15 @@ class BtChannelService {
     } on PlatformException catch (e) { _log('recoverMutedDevice', e); return false; }
   }
 
+  Future<bool> openDeveloperOptions() async {
+    try {
+      return await _channel.invokeMethod<bool>('openDeveloperOptions') ?? false;
+    } on PlatformException catch (e) {
+      _log('openDeveloperOptions', e);
+      return false;
+    }
+  }
+
   void _log(String method, PlatformException e) {
     // ignore: avoid_print
     print('[BtChannelService] $method failed: ${e.message}');

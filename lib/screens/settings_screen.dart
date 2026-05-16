@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
+import '../services/bt_channel_service.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -49,7 +50,12 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: const Text(
                     'Sincroniza el volumen Android con el dispositivo Bluetooth. Desactívalo si causa problemas.'),
                 value: state.absoluteVolumeEnabled,
-                onChanged: state.toggleAbsoluteVolume,
+                onChanged: (val) async {
+                  final success = await state.toggleAbsoluteVolume(val);
+                  if (!success && context.mounted) {
+                    _showPermissionDialog(context);
+                  }
+                },
                 activeColor: cs.primary,
               ),
             ],
@@ -102,6 +108,35 @@ class SettingsScreen extends StatelessWidget {
     if (image != null) {
       await state.setBackgroundImage(image.path);
     }
+  }
+
+  void _showPermissionDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restricción de Android'),
+        content: const Text(
+            'A diferencia del filtro de pantalla que pide el permiso de "Sobreponerse a otras apps", el Volumen Absoluto es un Ajuste Global de Seguridad de Android.\n\n'
+            'Google prohíbe que cualquier aplicación cambie esto automáticamente con un botón de permiso regular.\n\n'
+            'Para cambiarlo desde tu celular:\n'
+            '1. Toca "Abrir Ajustes" aquí abajo.\n'
+            '2. Busca y activa "Inhabilitar volumen absoluto".\n'
+            '3. Apaga y prende tu Bluetooth para aplicar.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              BtChannelService().openDeveloperOptions();
+            },
+            child: const Text('Abrir Ajustes'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _deleteProfile(

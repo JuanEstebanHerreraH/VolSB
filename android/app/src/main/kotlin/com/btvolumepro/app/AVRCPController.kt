@@ -31,7 +31,7 @@ class AVRCPController(private val context: Context) {
 
     private fun isAbsoluteVolumeEnabled(): Boolean {
         return try {
-            Settings.Global.getInt(context.contentResolver, "bluetooth_avrc_absolute_vol", 1) == 1
+            Settings.Global.getInt(context.contentResolver, "bluetooth_disable_absolute_volume", 0) == 0
         } catch (e: Exception) { true }
     }
 

@@ -35,6 +35,26 @@ class BtChannelService {
     } on PlatformException catch (e) { _log('setAndroidVolume', e); return false; }
   }
 
+  // ── Volumen BT virtual (estado independiente cuando AV=OFF) ─────────────────
+  // Este contador vive en el nativo y se incrementa con cada botón BT.
+  // NO refleja el volumen físico del DAC (limitación de API Android).
+
+  Future<int> getBtVolume() async {
+    try { return await _channel.invokeMethod<int>('getBtVolume') ?? 50; }
+    on PlatformException catch (e) { _log('getBtVolume', e); return 50; }
+  }
+
+  Future<int> getBtMaxVolume() async {
+    try { return await _channel.invokeMethod<int>('getBtMaxVolume') ?? 100; }
+    on PlatformException catch (e) { _log('getBtMaxVolume', e); return 100; }
+  }
+
+  Future<bool> setBtVolume(int level) async {
+    try {
+      return await _channel.invokeMethod<bool>('setBtVolume', {'level': level}) ?? false;
+    } on PlatformException catch (e) { _log('setBtVolume', e); return false; }
+  }
+
   // ── AVRCP PassThrough - simula botones físicos del dispositivo BT ───────────
   // Pasa el address para que Kotlin use AVRCP PassThrough directo al dispositivo
 

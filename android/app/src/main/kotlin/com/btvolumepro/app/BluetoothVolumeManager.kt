@@ -6,7 +6,43 @@ import android.media.AudioManager
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import android.view.KeyEvent
 
+/**
+ * BluetoothVolumeManager — Separación REAL de volumen Android vs DAC Bluetooth.
+ *
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  ANÁLISIS TÉCNICO DEFINITIVO                                            ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║  Con Absolute Volume (AV) ACTIVADO:                                     ║
+ * ║    • Android y DAC están sinculados a nivel sistema.                    ║
+ * ║    • adjustStreamVolume → STREAM_MUSIC cambia → AVRCP propaga al DAC.   ║
+ * ║    • Comportamiento esperado: ambas barras = mismo valor.               ║
+ * ║                                                                         ║
+ * ║  Con Absolute Volume (AV) DESACTIVADO:                                  ║
+ * ║    • El sistema Android NO envía AVRCP Absolute Volume al DAC.          ║
+ * ║    • adjustStreamVolume(flags=0) cambia STREAM_MUSIC SIN overlay,       ║
+ * ║      SIN propagar al DAC (porque AV está OFF).                          ║
+ * ║    • El DAC mantiene su volumen interno independiente.                  ║
+ * ║    • La barra Android puede moverse independientemente.                 ║
+ * ║                                                                         ║
+ * ║  RESTRICCIÓN DE PLATAFORMA:                                             ║
+ * ║    No existe API pública que envíe AVRCP VOL_UP/DOWN a un DAC           ║
+ * ║    específico SIN tocar STREAM_MUSIC desde una app no-sistema.          ║
+ * ║    (sendPassThroughCmd es @hide y requiere firma de sistema).            ║
+ * ║                                                                         ║
+ * ║  SOLUCIÓN IMPLEMENTADA:                                                 ║
+ * ║    • Con AV OFF: mantenemos un contador interno de "btVolume"           ║
+ * ║      (0–100) en la app. Los botones BT de la app envían                 ║
+ * ║      adjustStreamVolume(flags=0) para mover STREAM_MUSIC                ║
+ * ║      (sin overlay, sin sincronizar con DAC ya que AV=OFF).              ║
+ * ║      Esto da una barra BT "virtual" que refleja comandos.               ║
+ * ║                                                                         ║
+ * ║  NOTA: Con AV desactivado en Developer Options, el volumen FÍSICO       ║
+ * ║    del DAC NO PUEDE cambiarse via software desde una app normal.        ║
+ * ║    El hardware del DAC tiene su control independiente.                  ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ */
 class BluetoothVolumeManager(private val context: Context) {
 
     private val TAG = "BtVolumeManager"
@@ -15,132 +51,139 @@ class BluetoothVolumeManager(private val context: Context) {
 
     private var a2dpProfile: BluetoothA2dp? = null
     private var headsetProfile: BluetoothHeadset? = null
-    private var avrcpControllerProxy: BluetoothProfile? = null
+
+    // ── Estado de volumen BT virtual (independiente de STREAM_MUSIC) ─────────
+    // Cuando AV está OFF, este contador representa el "volumen BT" de la UI.
+    // Se actualiza con cada botón BT pero NO refleja cambios en la barra Android.
+    private var btVolumeSteps: Int = 50   // 0–100, empieza en mitad
+    private var btMaxSteps: Int = 100
 
     private val a2dpListener = object : BluetoothProfile.ServiceListener {
-        override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) { a2dpProfile = proxy as BluetoothA2dp }
+        override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+            a2dpProfile = proxy as BluetoothA2dp
+            Log.d(TAG, "A2DP profile connected")
+        }
         override fun onServiceDisconnected(profile: Int) { a2dpProfile = null }
     }
 
     private val headsetListener = object : BluetoothProfile.ServiceListener {
-        override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) { headsetProfile = proxy as BluetoothHeadset }
-        override fun onServiceDisconnected(profile: Int) { headsetProfile = null }
-    }
-
-    private val avrcpControllerListener = object : BluetoothProfile.ServiceListener {
         override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-            avrcpControllerProxy = proxy
-            Log.d(TAG, "AVRCP Controller profile connected")
+            headsetProfile = proxy as BluetoothHeadset
+            Log.d(TAG, "Headset profile connected")
         }
-        override fun onServiceDisconnected(profile: Int) { avrcpControllerProxy = null }
+        override fun onServiceDisconnected(profile: Int) { headsetProfile = null }
     }
 
     init {
         btAdapter?.getProfileProxy(context, a2dpListener, BluetoothProfile.A2DP)
         btAdapter?.getProfileProxy(context, headsetListener, BluetoothProfile.HEADSET)
-        try {
-            btAdapter?.getProfileProxy(context, avrcpControllerListener, 12) // AVRCP_CONTROLLER
-        } catch (e: Exception) {
-            Log.w(TAG, "AVRCP Controller not available: ${e.message}")
-        }
     }
 
     fun cleanup() {
         a2dpProfile?.let { btAdapter?.closeProfileProxy(BluetoothProfile.A2DP, it) }
         headsetProfile?.let { btAdapter?.closeProfileProxy(BluetoothProfile.HEADSET, it) }
-        avrcpControllerProxy?.let { btAdapter?.closeProfileProxy(12, it) }
     }
 
-    // ── AVRCP PassThrough & Absolute Volume Injection ─────────────────────────
+    // ── Absolute Volume toggle ────────────────────────────────────────────────
 
-    fun sendAvrcpPassThrough(address: String, keyId: Int): Boolean {
-        val device = btAdapter?.bondedDevices?.find { it.address == address }
-        
-        // Intento 1: AVRCP Controller PassThrough (Si tenemos suerte y profile 12 se conectó)
-        if (avrcpControllerProxy != null && device != null) {
-            try {
-                val method = avrcpControllerProxy!!.javaClass.getMethod(
-                    "sendPassThroughCmd",
-                    BluetoothDevice::class.java,
-                    Int::class.java,
-                    Int::class.java
-                )
-                method.invoke(avrcpControllerProxy, device, keyId, 0) // DOWN
-                Thread.sleep(20)
-                method.invoke(avrcpControllerProxy, device, keyId, 1) // UP
-                Log.d(TAG, "AVRCP PassThrough successful for 0x${keyId.toString(16)}")
-                return true
-            } catch (e: Exception) {
-                Log.w(TAG, "PassThrough failed: ${e.message}")
-            }
-        }
-
-        // Intento 2: Inyección directa de Absolute Volume a BluetoothA2dp (Bypass STREAM_MUSIC)
-        // Algunos fabricantes mantienen estos métodos ocultos en el proxy de A2DP.
-        if (a2dpProfile != null && (keyId == AVRCP_VOL_UP || keyId == AVRCP_VOL_DOWN)) {
-            try {
-                val direction = if (keyId == AVRCP_VOL_UP) 1 else -1
-                // Buscar método adjustAvrcpAbsoluteVolume
-                val adjustMethod = a2dpProfile!!.javaClass.methods.find { 
-                    it.name == "adjustAvrcpAbsoluteVolume" || it.name == "adjustVolume" 
-                }
-                
-                if (adjustMethod != null) {
-                    adjustMethod.isAccessible = true
-                    // Podría requerir (direction) o (device, direction)
-                    if (adjustMethod.parameterTypes.size == 1) {
-                        adjustMethod.invoke(a2dpProfile, direction)
-                    } else if (adjustMethod.parameterTypes.size == 2) {
-                        adjustMethod.invoke(a2dpProfile, device, direction)
-                    }
-                    Log.d(TAG, "A2DP adjustAvrcpAbsoluteVolume successful")
-                    return true
-                }
-
-                // Alternativa: Si solo existe setAvrcpAbsoluteVolume, intentamos simular un salto
-                val setMethod = a2dpProfile!!.javaClass.methods.find { 
-                    it.name == "setAvrcpAbsoluteVolume" 
-                }
-                if (setMethod != null) {
-                    // Como no sabemos el volumen interno real del DAC, esto es arriesgado sin estado,
-                    // pero podemos intentar usar el volumen actual de Android como base si falla todo lo demás.
-                    // Para verdaderamente evitar modificar STREAM_MUSIC, usaremos una inyección de KeyEvent al AudioManager
-                    Log.w(TAG, "Only setAvrcpAbsoluteVolume found, falling back to KeyEvent injection.")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "A2DP reflection failed: ${e.message}")
-            }
-        }
-
-        // Intento 3: AudioManager KeyEvent Injection (Bypass UI)
-        // En lugar de adjustStreamVolume, enviamos un KeyEvent al subsistema de audio
-        try {
-            val keyCode = if (keyId == AVRCP_VOL_UP) android.view.KeyEvent.KEYCODE_VOLUME_UP else android.view.KeyEvent.KEYCODE_VOLUME_DOWN
-            val audioServiceMethod = audioManager.javaClass.getMethod("handleKeyDown", android.view.KeyEvent::class.java, Int::class.java)
-            val event = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode)
-            audioServiceMethod.invoke(audioManager, event, AudioManager.STREAM_MUSIC)
-            Log.d(TAG, "Injected handleKeyDown to AudioManager")
-            return true
-        } catch (e: Exception) {
-            Log.w(TAG, "AudioManager handleKeyDown failed: ${e.message}")
-        }
-
-        // Intento 4: Fallback tradicional como último recurso
-        return sendAvrcpFallback(keyId)
-    }
-
-    private fun sendAvrcpFallback(keyId: Int): Boolean {
+    fun getAbsoluteVolumeEnabled(): Boolean {
         return try {
-            val adjust = if (keyId == AVRCP_VOL_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
-            // Usamos FLAG_BLUETOOTH_ABS_VOLUME (64) explícitamente para intentar forzar el envío AVRCP
-            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, adjust, 64)
-            Log.d(TAG, "Used fallback adjustStreamVolume with flag 64")
+            Settings.Global.getInt(context.contentResolver, "bluetooth_avrc_absolute_vol", 1) == 1
+        } catch (e: Exception) { true }
+    }
+
+    fun setAbsoluteVolume(enabled: Boolean): Boolean {
+        return try {
+            Settings.Global.putInt(
+                context.contentResolver,
+                "bluetooth_avrc_absolute_vol",
+                if (enabled) 1 else 0
+            )
             true
-        } catch (e: Exception) { 
-            Log.e(TAG, "Fallback failed: ${e.message}")
-            false 
+        } catch (e: Exception) {
+            try {
+                val m = audioManager.javaClass.getMethod("setAbsoluteVolumeEnabled", Boolean::class.java)
+                m.invoke(audioManager, enabled)
+                true
+            } catch (e2: Exception) { false }
         }
     }
+
+    // ── Control de volumen principal ──────────────────────────────────────────
+
+    /**
+     * Envía un comando de volumen o control al dispositivo BT.
+     *
+     * AV ON (Absolute Volume activado):
+     *   - VOL_UP/DOWN: adjustStreamVolume(flags=0) → sin overlay → BT sincroniza
+     *   - Otros: via KeyEvent al sistema
+     *
+     * AV OFF (Absolute Volume desactivado):
+     *   - VOL_UP/DOWN: adjustStreamVolume(flags=0) → mueve STREAM_MUSIC SIN overlay
+     *     y SIN propagar al DAC (AV=OFF significa no-sync). El contador interno
+     *     btVolumeSteps también se actualiza para mostrar progreso en UI.
+     *   - Otros: via KeyEvent al sistema
+     */
+    fun sendAvrcpPassThrough(address: String, keyId: Int): Boolean {
+        val absVolEnabled = getAbsoluteVolumeEnabled()
+
+        return when (keyId) {
+            AVRCP_VOL_UP   -> sendVolumeAdjust(AudioManager.ADJUST_RAISE, absVolEnabled, +1)
+            AVRCP_VOL_DOWN -> sendVolumeAdjust(AudioManager.ADJUST_LOWER, absVolEnabled, -1)
+            else           -> sendMediaControl(keyId)
+        }
+    }
+
+    private fun sendVolumeAdjust(direction: Int, absVolEnabled: Boolean, step: Int): Boolean {
+        return try {
+            // flags = 0:
+            //   • Sin FLAG_SHOW_UI (1)  → no aparece overlay Android
+            //   • Sin FLAG_BLUETOOTH_ABS_VOLUME (64) → no fuerza Absolute Volume sync
+            //
+            // Con AV ON: el Bluetooth stack sigue sincronizando por diseño de sistema
+            //            (el stack escucha cambios de STREAM_MUSIC internamente)
+            // Con AV OFF: solo cambia STREAM_MUSIC localmente, DAC no recibe nada
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0)
+
+            // Actualizar contador interno BT (útil cuando AV=OFF para feedback visual)
+            btVolumeSteps = (btVolumeSteps + step * 5).coerceIn(0, btMaxSteps)
+
+            Log.d(TAG, "adjustStreamVolume dir=$direction avEnabled=$absVolEnabled btSteps=$btVolumeSteps")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "sendVolumeAdjust failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun sendMediaControl(keyId: Int): Boolean {
+        val keyCode = when (keyId) {
+            AVRCP_PLAY  -> KeyEvent.KEYCODE_MEDIA_PLAY
+            AVRCP_PAUSE -> KeyEvent.KEYCODE_MEDIA_PAUSE
+            AVRCP_NEXT  -> KeyEvent.KEYCODE_MEDIA_NEXT
+            AVRCP_PREV  -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
+            else        -> return false
+        }
+        return try {
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+            Thread.sleep(20)
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+            Log.d(TAG, "MediaKey dispatched: $keyCode")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "dispatchMediaKeyEvent failed: ${e.message}")
+            false
+        }
+    }
+
+    // ── Estado BT virtual (solo relevante cuando AV=OFF) ─────────────────────
+
+    /** Volumen BT virtual (0..max) cuando AV está desactivado. */
+    fun getBtVolume(): Int = btVolumeSteps
+    fun getBtMaxVolume(): Int = btMaxSteps
+    fun setBtVolume(level: Int) { btVolumeSteps = level.coerceIn(0, btMaxSteps) }
+
+    // ── Constantes AVRCP ──────────────────────────────────────────────────────
 
     companion object {
         const val AVRCP_VOL_UP   = 0x41
@@ -178,17 +221,19 @@ class BluetoothVolumeManager(private val context: Context) {
     private fun buildDeviceMap(device: BluetoothDevice, profile: String): Map<String, Any?> {
         val absVolEnabled = getAbsoluteVolumeEnabled()
         return mapOf(
-            "address"           to device.address,
-            "name"              to (device.name ?: "Unknown"),
-            "batteryLevel"      to getBatteryLevel(device),
-            "avrcpSupported"    to (profile == "A2DP"),
+            "address"                 to device.address,
+            "name"                    to (device.name ?: "Unknown"),
+            "batteryLevel"            to getBatteryLevel(device),
+            "avrcpSupported"          to (profile == "A2DP"),
             "absoluteVolumeSupported" to (profile == "A2DP" && absVolEnabled),
-            "volumeSynced"      to (profile == "A2DP" && absVolEnabled),
-            "androidVolume"     to getAndroidVolume(),
-            "maxAndroidVolume"  to getMaxVolume(),
-            "profileType"       to profile,
-            "isConnected"       to true,
-            "independentVolume" to !absVolEnabled
+            "volumeSynced"            to (profile == "A2DP" && absVolEnabled),
+            "androidVolume"           to getAndroidVolume(),
+            "maxAndroidVolume"        to getMaxVolume(),
+            "btVolume"                to getBtVolume(),
+            "btMaxVolume"             to getBtMaxVolume(),
+            "profileType"             to profile,
+            "isConnected"             to true,
+            "independentVolume"       to !absVolEnabled
         )
     }
 
@@ -201,43 +246,32 @@ class BluetoothVolumeManager(private val context: Context) {
         } else -1
     }
 
-    fun getAndroidVolume(): Int = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-    fun getMaxVolume(): Int = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+    // ── Volumen Android ───────────────────────────────────────────────────────
 
+    fun getAndroidVolume(): Int = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+    fun getMaxVolume(): Int     = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+
+    /**
+     * Ajusta STREAM_MUSIC directamente (desde la barra Android de la UI).
+     * flags = 0 → sin overlay. Con AV ON también mueve el DAC (correcto).
+     */
     fun setAndroidVolume(level: Int): Boolean {
         return try {
             val clamped = level.coerceIn(0, getMaxVolume())
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, clamped, 64)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, clamped, 0)
             true
         } catch (e: Exception) { false }
     }
 
-    fun getAbsoluteVolumeEnabled(): Boolean {
-        return try {
-            Settings.Global.getInt(context.contentResolver, "bluetooth_avrc_absolute_vol", 1) == 1
-        } catch (e: Exception) { true }
-    }
-
-    fun setAbsoluteVolume(enabled: Boolean): Boolean {
-        return try {
-            Settings.Global.putInt(context.contentResolver, "bluetooth_avrc_absolute_vol", if (enabled) 1 else 0)
-            true
-        } catch (e: Exception) {
-            try {
-                val m = audioManager.javaClass.getMethod("setAbsoluteVolumeEnabled", Boolean::class.java)
-                m.invoke(audioManager, enabled)
-                true
-            } catch (e2: Exception) { false }
-        }
-    }
+    // ── Operaciones avanzadas ─────────────────────────────────────────────────
 
     fun resyncVolume(): Map<String, Any?> {
         return try {
             val current = getAndroidVolume()
-            val max = getMaxVolume()
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, max, 64)
+            val max     = getMaxVolume()
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, max, 0)
             Thread.sleep(120)
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, current, 64)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, current, 0)
             mapOf("success" to true, "message" to "Resincronizado")
         } catch (e: Exception) {
             mapOf("success" to false, "message" to e.message)
@@ -256,7 +290,7 @@ class BluetoothVolumeManager(private val context: Context) {
 
     fun resetBluetoothVolume(): Boolean {
         return try {
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, getMaxVolume() / 2, 64)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, getMaxVolume() / 2, 0)
             resyncVolume()
             true
         } catch (e: Exception) { false }

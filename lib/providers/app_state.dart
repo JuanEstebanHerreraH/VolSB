@@ -27,6 +27,12 @@ class AppState extends ChangeNotifier {
   int androidVolume = 0;
   int maxAndroidVolume = 15;
 
+  // Volumen BT independiente (solo relevante cuando AV=OFF)
+  // Representa el nivel 0–100 del DAC desde la perspectiva de la app.
+  // NO es STREAM_MUSIC — es el contador interno del nativo.
+  int btVolume = 50;
+  int btMaxVolume = 100;
+
   Timer? _refreshTimer;
 
   // ── Init ─────────────────────────────────────────────────────────────────────
@@ -51,6 +57,11 @@ class AppState extends ChangeNotifier {
         maxAndroidVolume = max;
         notifyListeners();
       }
+      // Cuando AV=ON refrescamos también btVolume para que refleje lo mismo
+      if (absoluteVolumeEnabled) {
+        btVolume = vol;
+        btMaxVolume = max;
+      }
     });
   }
 
@@ -67,11 +78,20 @@ class AppState extends ChangeNotifier {
     final found = await _btService.getConnectedDevices();
     androidVolume = await _btService.getAndroidVolume();
     maxAndroidVolume = await _btService.getMaxAndroidVolume();
+
+    // Sincronizar btVolume con el nativo
+    btVolume = await _btService.getBtVolume();
+    btMaxVolume = await _btService.getBtMaxVolume();
+    // Con AV ON, btVolume debe reflejar el mismo valor que androidVolume
+    if (absoluteVolumeEnabled) {
+      btVolume = androidVolume;
+      btMaxVolume = maxAndroidVolume;
+    }
+
     devices = found;
     if (found.isNotEmpty && selectedDevice == null) {
       selectedDevice = found.first;
     } else if (selectedDevice != null) {
-      // Refresh selected device info
       final updated = found.firstWhere(
         (d) => d.address == selectedDevice!.address,
         orElse: () => selectedDevice!,
@@ -89,26 +109,43 @@ class AppState extends ChangeNotifier {
   // ── Volume controls ──────────────────────────────────────────────────────────
 
   Future<void> setAndroidVolume(int level) async {
-    isMuted = false; // Auto-unmute al ajustar volumen
+    // La barra Android siempre toca STREAM_MUSIC directamente.
+    // Con AV ON: también mueve el DAC (esperado).
+    // Con AV OFF: SOLO mueve la barra Android — el DAC queda independiente.
     await _btService.setAndroidVolume(level);
     androidVolume = level;
     notifyListeners();
   }
 
   Future<void> volumeUp() async {
-    isMuted = false; // Auto-unmute
+    isMuted = false;
     await _btService.sendVolumeUp(address: selectedDevice?.address);
     if (absoluteVolumeEnabled) {
+      // AV ON: Android y BT están vinculados. Refrescamos ambas barras desde STREAM_MUSIC.
       await _refreshVolume();
+      btVolume = androidVolume;
+      btMaxVolume = maxAndroidVolume;
+    } else {
+      // AV OFF: El nativo incrementa el contador BT interno.
+      // Leemos el nuevo valor para actualizar la barra BT de la UI.
+      btVolume = await _btService.getBtVolume();
+      // La barra Android NO se refresca — permanece independiente.
     }
+    notifyListeners();
   }
 
   Future<void> volumeDown() async {
-    isMuted = false; // Auto-unmute
+    isMuted = false;
     await _btService.sendVolumeDown(address: selectedDevice?.address);
     if (absoluteVolumeEnabled) {
       await _refreshVolume();
+      btVolume = androidVolume;
+      btMaxVolume = maxAndroidVolume;
+    } else {
+      btVolume = await _btService.getBtVolume();
+      // La barra Android NO se refresca — permanece independiente.
     }
+    notifyListeners();
   }
 
   Future<void> sendPlayPause() async {
@@ -250,6 +287,13 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  /// Porcentaje de volumen Android (para la barra Android de la UI)
   double get volumePercent =>
       maxAndroidVolume > 0 ? androidVolume / maxAndroidVolume : 0.0;
+
+  /// Porcentaje de volumen BT independiente (para la barra BT de la UI)
+  /// Cuando AV=ON: igual a volumePercent.
+  /// Cuando AV=OFF: refleja el contador interno btVolume/btMaxVolume.
+  double get btVolumePercent =>
+      btMaxVolume > 0 ? btVolume / btMaxVolume : 0.0;
 }

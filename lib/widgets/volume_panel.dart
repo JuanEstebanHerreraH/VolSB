@@ -100,11 +100,17 @@ class _BluetoothVolumeController extends StatelessWidget {
     final bgColor = const Color(0xFF161B22);
     final textColor = Colors.white;
     final subtitleColor = Colors.white54;
+
+    // Cuando AV=ON: btVolume == androidVolume (misma fuente).
+    // Cuando AV=OFF: btVolume es el contador independiente (0–100).
+    final btVol = state.btVolume;
+    final btMax = state.btMaxVolume > 0 ? state.btMaxVolume : 100;
+    final pct = (btVol / btMax * 100).round();
     
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: bgColor, // Dark/Light premium feel
+        color: bgColor,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
@@ -131,25 +137,36 @@ class _BluetoothVolumeController extends StatelessWidget {
                 style: TextStyle(
                   color: textColor,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2, // Reducido para evitar separación excesiva en modo claro
+                  letterSpacing: 1.2,
                   fontSize: 16,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
-            isAbsolute ? 'Sincronizado con dispositivo' : 'Control AVRCP Directo',
+            isAbsolute ? 'Sincronizado con dispositivo' : 'Control Independiente',
             style: TextStyle(color: subtitleColor, fontSize: 12),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 8),
+          // Indicador de nivel BT (solo visible como referencia)
+          Text(
+            '$pct%',
+            style: TextStyle(
+              color: isAbsolute ? cs.primary : Colors.tealAccent,
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1,
+            ),
+          ),
+          const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               _RepeatableVolumeButton(
                 icon: Icons.remove_rounded,
                 onTap: state.volumeDown,
-                btnColor: const Color(0xFFE53935), // Crimson sutil y elegante
+                btnColor: const Color(0xFFE53935),
                 isNegative: true,
               ),
               Column(
@@ -174,7 +191,7 @@ class _BluetoothVolumeController extends StatelessWidget {
               _RepeatableVolumeButton(
                 icon: Icons.add_rounded,
                 onTap: state.volumeUp,
-                btnColor: cs.primary, // Azul cyan original
+                btnColor: cs.primary,
                 isNegative: false,
               ),
             ],

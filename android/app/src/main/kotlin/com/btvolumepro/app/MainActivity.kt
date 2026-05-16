@@ -24,10 +24,17 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
 
+                    // ── Dispositivos ──────────────────────────────────────────────────
+
                     "getConnectedDevices" -> {
                         try { result.success(btVolumeManager.getConnectedDevices()) }
                         catch (e: Exception) { result.error("BT_ERROR", e.message, null) }
                     }
+
+                    // ── Volumen Android (barra Android de la UI) ──────────────────────
+                    // Siempre toca STREAM_MUSIC.
+                    // Con AV ON: también sincroniza al BT.
+                    // Con AV OFF: SOLO mueve barra Android, DAC queda independiente.
 
                     "getAndroidVolume" -> result.success(btVolumeManager.getAndroidVolume())
                     "getMaxVolume"     -> result.success(btVolumeManager.getMaxVolume())
@@ -36,8 +43,28 @@ class MainActivity : FlutterActivity() {
                         result.success(btVolumeManager.setAndroidVolume(level))
                     }
 
-                    // Botones de volumen - ahora usan AVRCP PassThrough cuando hay address
-                    // Simula exactamente presionar el botón físico del dispositivo BT
+                    // ── Volumen BT virtual (cuando AV OFF) ────────────────────────────
+                    // getBtVolume / setBtVolume manejan el contador interno 0–100.
+                    // Este valor es lo que la barra BT de la UI muestra en modo independiente.
+
+                    "getBtVolume"    -> result.success(btVolumeManager.getBtVolume())
+                    "getBtMaxVolume" -> result.success(btVolumeManager.getBtMaxVolume())
+                    "setBtVolume" -> {
+                        val level = call.argument<Int>("level") ?: 50
+                        btVolumeManager.setBtVolume(level)
+                        result.success(true)
+                    }
+
+                    // ── Botones BT de la app (VOL UP / VOL DOWN) ──────────────────────
+                    //
+                    // Con AV OFF:
+                    //   adjustStreamVolume(flags=0) → sin overlay, sin AVRCP Absolute sync.
+                    //   STREAM_MUSIC cambia localmente. El DAC NO recibe el cambio.
+                    //   La barra BT virtual se incrementa/decrementa internamente.
+                    //
+                    // Con AV ON:
+                    //   adjustStreamVolume(flags=0) → STREAM_MUSIC + BT sincronizan.
+
                     "sendVolumeUp" -> {
                         val address = call.argument<String>("address")
                         val ok = if (!address.isNullOrEmpty()) {
@@ -57,7 +84,8 @@ class MainActivity : FlutterActivity() {
                         result.success(ok)
                     }
 
-                    // Controles de reproducción via AVRCP PassThrough
+                    // ── Controles de reproducción ─────────────────────────────────────
+
                     "sendPlay" -> {
                         val address = call.argument<String>("address") ?: ""
                         result.success(btVolumeManager.sendAvrcpPassThrough(address, BluetoothVolumeManager.AVRCP_PLAY))
@@ -75,8 +103,12 @@ class MainActivity : FlutterActivity() {
                         result.success(btVolumeManager.sendAvrcpPassThrough(address, BluetoothVolumeManager.AVRCP_PREV))
                     }
 
+                    // ── Mute / Unmute ─────────────────────────────────────────────────
+
                     "sendMute"   -> result.success(avrcpController.sendMute())
                     "sendUnmute" -> result.success(avrcpController.sendUnmute())
+
+                    // ── Operaciones avanzadas ─────────────────────────────────────────
 
                     "resyncVolume" -> result.success(btVolumeManager.resyncVolume())
                     "reconnectDevice" -> {
@@ -89,11 +121,15 @@ class MainActivity : FlutterActivity() {
                         result.success(avrcpController.recoverMutedDevice(address))
                     }
 
+                    // ── Absolute Volume ───────────────────────────────────────────────
+
                     "setAbsoluteVolume" -> {
                         val enabled = call.argument<Boolean>("enabled") ?: true
                         result.success(btVolumeManager.setAbsoluteVolume(enabled))
                     }
                     "getAbsoluteVolumeEnabled" -> result.success(btVolumeManager.getAbsoluteVolumeEnabled())
+
+                    // ── Bluetooth toggle ──────────────────────────────────────────────
 
                     "toggleBluetooth" -> result.success(btVolumeManager.toggleBluetooth())
 
